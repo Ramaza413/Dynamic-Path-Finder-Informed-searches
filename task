@@ -1,0 +1,325 @@
+"""
+DYNAMIC INFORMED PATHFINDER
+A* and Greedy with Dynamic Obstacles
+"""
+
+import time
+import random
+import heapq
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('TkAgg')
+
+
+# ==========================================================
+# HEURISTICS
+# ==========================================================
+
+def manhattan(a, b):
+    return abs(a[0]-b[0]) + abs(a[1]-b[1])
+
+def euclidean(a, b):
+    return ((a[0]-b[0])**2 + (a[1]-b[1])**2) ** 0.5
+
+
+# ==========================================================
+# GRID ENVIRONMENT
+# ==========================================================
+
+class GridEnvironment:
+
+    def __init__(self, rows=12, cols=12, density=0.2):
+        self.rows = rows
+        self.cols = cols
+        self.grid = np.zeros((rows, cols), dtype=int)
+
+        # Random obstacle generation
+        for i in range(rows):
+            for j in range(cols):
+                if random.random() < density:
+                    self.grid[i][j] = -1
+
+        self.start = (rows-1, 0)
+        self.goal = (0, cols-1)
+
+        # Ensure start & goal free
+        self.grid[self.start] = 0
+        self.grid[self.goal] = 0
+
+    def is_valid(self, pos):
+        r, c = pos
+        return 0 <= r < self.rows and 0 <= c < self.cols and self.grid[r][c] != -1
+
+    def get_neighbors(self, pos):
+        r, c = pos
+
+        directions = [
+            (-1,0),(1,0),(0,-1),(0,1)
+        ]
+
+        neighbors = []
+        for dr, dc in directions:
+            new_pos = (r+dr, c+dc)
+            if self.is_valid(new_pos):
+                neighbors.append(new_pos)
+
+        return neighbors
+
+
+# ==========================================================
+# VISUALIZER
+# ==========================================================
+
+class PathfindingVisualizer:
+
+    def __init__(self, env, title):
+        self.env = env
+        self.delay = 0.05
+
+        plt.ion()
+        self.fig, self.ax = plt.subplots(figsize=(8,8))
+        self.fig.canvas.manager.set_window_title("Dynamic Pathfinding")
+
+        self.title = title
+        plt.show(block=False)
+
+    def draw(self, frontier, explored, current=None, path=None):
+
+        self.ax.clear()
+
+        self.ax.set_title(self.title + 
+                          f"\nExplored: {len(explored)}", 
+                          fontsize=14)
+
+        colors = []
+        texts = []
+
+        for i in range(self.env.rows):
+            row_colors = []
+            row_text = []
+
+            for j in range(self.env.cols):
+
+                pos = (i,j)
+                color = "white"
+                text = ""
+
+                if pos == self.env.start:
+                    color = "#003366"
+                    text = "S"
+
+                elif pos == self.env.goal:
+                    color = "#006400"
+                    text = "G"
+
+                elif self.env.grid[i][j] == -1:
+                    color = "#8B0000"
+
+                elif path and pos in path:
+                    color = "#00FF00"
+
+                elif pos in explored:
+                    color = "#ADD8E6"
+
+                elif pos in frontier:
+                    color = "#FFA500"
+
+                row_colors.append(color)
+                row_text.append(text)
+
+            colors.append(row_colors)
+            texts.append(row_text)
+
+        table = self.ax.table(
+            cellText=texts,
+            cellColours=colors,
+            cellLoc='center',
+            loc='center',
+            bbox=[0,0,1,1]
+        )
+
+        self.ax.axis('off')
+
+        plt.pause(self.delay)
+
+    def show_final(self):
+        plt.ioff()
+        plt.show()
+
+
+# ==========================================================
+# SEARCH (A* + GREEDY + DYNAMIC)
+# ==========================================================
+
+class SearchAlgorithms:
+
+    def __init__(self, env, viz, algo, heuristic_type, dynamic=True):
+
+        self.env = env
+        self.viz = viz
+        self.algo = algo
+        self.heuristic_type = heuristic_type
+        self.dynamic = dynamic
+
+    def heuristic(self, a, b):
+        if self.heuristic_type == "manhattan":
+            return manhattan(a, b)
+        return euclidean(a, b)
+
+    def reconstruct(self, parent, node):
+        path = []
+        while node in parent:
+            path.append(node)
+            node = parent[node]
+        path.append(self.env.start)
+        return path[::-1]
+
+    def spawn_dynamic(self):
+        """Spawn random obstacle"""
+        if random.random() < 0.04:
+
+            r = random.randint(0,self.env.rows-1)
+            c = random.randint(0,self.env.cols-1)
+
+            if (r,c) not in [self.env.start, self.env.goal]:
+                self.env.grid[r][c] = -1
+
+    def run(self):
+
+        start_time = time.time()
+
+        open_set = []
+        heapq.heappush(open_set, (0, self.env.start))
+
+        g_cost = {self.env.start:0}
+        parent = {}
+        explored = set()
+        expanded = 0
+
+        while open_set:
+
+            _, current = heapq.heappop(open_set)
+
+            if current in explored:
+                continue
+
+            explored.add(current)
+            expanded += 1
+
+            frontier = {item[1] for item in open_set}
+
+            self.viz.draw(frontier, explored, current)
+
+            if current == self.env.goal:
+
+                end = time.time()
+
+                path = self.reconstruct(parent,current)
+
+                self.viz.draw(set(), explored, None, path)
+
+                print("\n===== METRICS =====")
+                print("Nodes Expanded:", expanded)
+                print("Path Cost:", len(path))
+                print("Execution Time(ms):", (end-start_time)*1000)
+
+                return path
+
+            # Dynamic obstacle spawn
+            if self.dynamic:
+                self.spawn_dynamic()
+
+            for neighbor in self.env.get_neighbors(current):
+
+                new_g = g_cost[current] + 1
+
+                if neighbor not in g_cost or new_g < g_cost[neighbor]:
+
+                    g_cost[neighbor] = new_g
+                    parent[neighbor] = current
+
+                    h = self.heuristic(neighbor, self.env.goal)
+
+                    if self.algo == "astar":
+                        f = new_g + h
+                    else:
+                        f = h
+
+                    heapq.heappush(open_set,(f,neighbor))
+
+        return None
+
+
+# ==========================================================
+# MENU SYSTEM
+# ==========================================================
+
+def menu():
+
+    print("\nSelect Algorithm")
+    print("1. A*")
+    print("2. Greedy")
+
+    a = input("Choice: ")
+
+    print("\nSelect Heuristic")
+    print("1. Manhattan")
+    print("2. Euclidean")
+
+    h = input("Choice: ")
+
+    print("\nSelect Scenario")
+    print("1. Best Case (Almost empty)")
+    print("2. Worst Case (Dense obstacles)")
+
+    s = input("Choice: ")
+
+    algo = "astar" if a=="1" else "greedy"
+    heuristic = "manhattan" if h=="1" else "euclidean"
+
+    if s == "1":
+        density = 0.05
+        title = "BEST CASE"
+    else:
+        density = 0.35
+        title = "WORST CASE"
+
+    return algo, heuristic, density, title
+
+
+# ==========================================================
+# MAIN
+# ==========================================================
+
+def main():
+
+    algo, heuristic, density, title = menu()
+
+    env = GridEnvironment(density=density)
+
+    viz = PathfindingVisualizer(
+        env,
+        f"{algo.upper()} | {heuristic.upper()} | {title}"
+    )
+
+    searcher = SearchAlgorithms(
+        env,
+        viz,
+        algo,
+        heuristic,
+        dynamic=True
+    )
+
+    path = searcher.run()
+
+    if path:
+        print("\nPATH FOUND")
+    else:
+        print("\nNO PATH")
+
+    viz.show_final()
+
+
+if __name__ == "__main__":
+    main()
