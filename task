@@ -1,8 +1,3 @@
-"""
-DYNAMIC INFORMED PATHFINDER
-A* and Greedy with Dynamic Obstacles
-"""
-
 import time
 import random
 import heapq
@@ -322,4 +317,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()
